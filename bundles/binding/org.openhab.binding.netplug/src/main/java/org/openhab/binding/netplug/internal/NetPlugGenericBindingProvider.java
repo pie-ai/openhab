@@ -111,7 +111,7 @@ public class NetPlugGenericBindingProvider extends
 			for (String name : netPlugBindingConfigsForType.keySet()) {
 				NetPlugBindingConfig config = netPlugBindingConfigsForType
 						.get(name);
-				if (config.getIP().equals(hostAddress)) {
+				if (config.getLocation().equals(hostAddress)) {
 					if (config.getId() == serviceId) {
 						return config;
 					}

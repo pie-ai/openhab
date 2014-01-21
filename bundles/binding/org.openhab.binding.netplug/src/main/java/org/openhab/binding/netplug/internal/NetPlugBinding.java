@@ -28,11 +28,17 @@
  */
 package org.openhab.binding.netplug.internal;
 
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.SocketException;
+import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.Dictionary;
 
@@ -88,6 +94,94 @@ public class NetPlugBinding extends AbstractBinding<NetPlugBindingProvider>
 		listenerThread = null;
 	}
 
+	public static void handleCommand(NetPlugBindingConfig target, String data) {
+		switch (target.getConnectionType()) {
+		case TCP:
+			String targetUrl = target.getLocation();
+			URL url;
+			HttpURLConnection connection = null;
+			
+			try {
+				 //Create connection
+			      url = new URL(targetUrl);
+			      connection = (HttpURLConnection)url.openConnection();
+			      connection.setRequestMethod("POST");
+			      connection.setRequestProperty("Content-Type", 
+			           "application/x-www-form-urlencoded");
+			      connection.setRequestProperty("NetPlugId", 
+				           target.getNetPlugId());
+			      connection.setRequestProperty("Command", 
+				           "AddCommand");
+						
+			      connection.setRequestProperty("Content-Length", "" + 
+			               Integer.toString(data.getBytes().length));
+						
+			      connection.setUseCaches (false);
+			      connection.setDoInput(true);
+			      connection.setDoOutput(true);
+
+			      //Send request
+			      DataOutputStream wr = new DataOutputStream (
+			                  connection.getOutputStream ());
+			      wr.writeBytes (data);
+			      wr.flush ();
+			      wr.close ();
+
+			      //Get Response	
+			      InputStream is = connection.getInputStream();
+			      BufferedReader rd = new BufferedReader(new InputStreamReader(is));
+			      String line;
+			      StringBuffer response = new StringBuffer(); 
+			      while((line = rd.readLine()) != null) {
+			        response.append(line);
+			        response.append('\r');
+			      }
+			      rd.close();
+
+			      logger.info("server responded: {0}", response.toString());
+			} catch (Exception e) {
+				logger.error("could not post command '{0}' to target '{1}",
+						data, target, e);
+			} finally {
+				if (connection != null) {
+					connection.disconnect();
+				}
+			}
+
+			break;
+		case UDP:
+			DatagramSocket clientSocket;
+			try {
+				clientSocket = new DatagramSocket();
+				InetAddress IPAddress = InetAddress.getByName(target
+						.getLocation());
+				DatagramPacket sendPacket = null;
+				byte[] sendData = data.getBytes();
+				sendPacket = new DatagramPacket(sendData, sendData.length,
+						IPAddress, target.getPort());
+				clientSocket.send(sendPacket);
+
+			} catch (SocketException e) {
+				logger.error("could not send command '" + data + "' to '"
+						+ target.getLocation() + ":" + target.getPort() + ":"
+						+ e.getMessage(), e);
+			} catch (UnknownHostException e) {
+				logger.error("could not send command '" + data + "' to '"
+						+ target.getLocation() + ":" + target.getPort() + ":"
+						+ e.getMessage(), e);
+			} catch (IOException e) {
+				logger.error("could not send command '" + data + "' to '"
+						+ target.getLocation() + ":" + target.getPort() + ":"
+						+ e.getMessage(), e);
+			}
+			break;
+		default:
+			logger.error("unhandled command:" + data + " for target: "
+					+ target.toString());
+		}
+
+	}
+
 	/**
 	 * @{inheritDoc
 	 */
@@ -96,7 +190,7 @@ public class NetPlugBinding extends AbstractBinding<NetPlugBindingProvider>
 		// the code being executed when a command was sent on the openHAB
 		// event bus goes here. This method is only called if one of the
 		// BindingProviders provide a binding for the given 'itemName'.
-  		logger.debug("internalReceiveCommand() is called!");
+		logger.debug("internalReceiveCommand() is called!");
 		for (NetPlugBindingProvider provider : providers) {
 			NetPlugBindingConfig config = provider.getConfig(itemName);
 			if (config != null) {
@@ -108,36 +202,7 @@ public class NetPlugBinding extends AbstractBinding<NetPlugBindingProvider>
 				}
 
 				if (data != null) {
-					DatagramSocket clientSocket;
-					try {
-						clientSocket = new DatagramSocket();
-						InetAddress IPAddress = InetAddress.getByName(config
-								.getIP());
-						DatagramPacket sendPacket = null;
-						byte[] sendData = data.getBytes();
-						sendPacket = new DatagramPacket(sendData,
-								sendData.length, IPAddress, config.getPort());
-						clientSocket.send(sendPacket);
-
-					} catch (SocketException e) {
-						logger.error(
-								"could not send command '" + data + "' to '"
-										+ config.getIP() + ":"
-										+ config.getPort() + ":"
-										+ e.getMessage(), e);
-					} catch (UnknownHostException e) {
-						logger.error(
-								"could not send command '" + data + "' to '"
-										+ config.getIP() + ":"
-										+ config.getPort() + ":"
-										+ e.getMessage(), e);
-					} catch (IOException e) {
-						logger.error(
-								"could not send command '" + data + "' to '"
-										+ config.getIP() + ":"
-										+ config.getPort() + ":"
-										+ e.getMessage(), e);
-					}
+					handleCommand(config, data);
 				} else {
 					logger.debug("no data to send");
 				}
@@ -160,7 +225,7 @@ public class NetPlugBinding extends AbstractBinding<NetPlugBindingProvider>
 	/**
 	 * @{inheritDoc
 	 */
-//	@Override
+	// @Override
 	public void updated(Dictionary<String, ?> config)
 			throws ConfigurationException {
 		if (config != null) {
@@ -179,13 +244,12 @@ public class NetPlugBinding extends AbstractBinding<NetPlugBindingProvider>
 		}
 	}
 
-//	@Override
+	// @Override
 	public void notifyChange(NetPlugBroadcast server, ServiceState service) {
 		State state = null;
 		if (service.getType() == NetPlugServiceType.RELAIS) {
 			state = service.getState() == 1 ? OnOffType.ON : OnOffType.OFF;
-		}
-		else if (service.getType() == NetPlugServiceType.TEMPERATURE_SENSOR) {
+		} else if (service.getType() == NetPlugServiceType.TEMPERATURE_SENSOR) {
 			state = new DecimalType(service.getState() / 100);
 		}
 		// else if (service.getType() == NetPlugServiceType.DIGITAL_OUTPUT)

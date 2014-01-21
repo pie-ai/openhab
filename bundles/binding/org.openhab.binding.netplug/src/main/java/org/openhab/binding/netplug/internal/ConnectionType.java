@@ -1,5 +1,9 @@
 package org.openhab.binding.netplug.internal;
 
 public enum ConnectionType {
-	UDP, USB
+	UDP, TCP
+	/*
+	 * TODO implement local usb connection
+	 * , USB
+	 */
 }

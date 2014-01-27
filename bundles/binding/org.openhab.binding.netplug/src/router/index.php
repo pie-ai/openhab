@@ -188,7 +188,9 @@
 			}
 		}
 		
-		
+		// clean all old, non fetched status updates
+		$sth = $dbh->prepare('DELETE FROM status WHERE retrieved_at = "0000-00-00 00:00:00"');
+		$sth->execute();
 		
 		$dbh = null;
 	}
